@@ -1,0 +1,319 @@
+---
+title: "Deep Learning"
+author: "Hangyu Yue"
+date: "3/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = FALSE)
+```
+
+
+## Neural Networks and Deep Learning
+
+- Neural networks (NNs) were introduced in 1980s
+- inspired by the architecture of the human brain
+     
+```{r echo=FALSE, out.width='80%', eval = TRUE}
+knitr::include_graphics("fig18_1.png")
+```
+
+
+- There are four predictors or inputs $x_j$
+- hidden units: $a_l = g(w_{l0}^{(1)} + \sum_{j=1}^4 w_{lj}^{(1)} x_j)$
+- output unit: $f(x) = h(w_{0}^{(2)} + \sum_{l=1}^5 w_{l}^{(2)} a_l)$
+
+- some NN terminology
+- the units are called *neurons*
+- the intercepts $w_{l0}^{(1)}$ are called *bias*
+- the function $g$ is a non linear function, for example sigmoid function (equivalent to the logit function)
+- the function $h$ is typically the identity function for quantitative regression and a sigmoid function for binary regression.
+
+
+## What’s the big deal?
+
+A statistician may say: A neural network is just a nonlinear model, not too different from many other
+generalizations of linear models.
+
+But..
+
+NNs could be scaled up and generalized in a variety of way
+- many hidden units in a layer
+- multiple hidden layer
+- weight sharing
+- a variety of colorful forms of regularization
+- innovative learning algorithm
+- most importantly, the community
+
+After enjoying considerable popularity for a number of years, neural
+networks were somewhat sidelined by new inventions in the mid 1990s,
+such as boosting and SVMs.
+
+Then they re-emerged with a vengeance after 2010—the
+reincarnation now being called **deep learning**. 
+
+
+## Handwritten Digit Problem
+
+```{r echo=FALSE, out.width='70%', eval = TRUE}
+knitr::include_graphics("fig18_2.png")
+```
+
+
+
+## Algorithms
+
+- Backpropagation is a most common algorithm to fit a NN.
+    - update the weights by using one observation at a time
+    
+- Stochastic Gradient Descent Methods
+    - update the weights by using a random batch of observations at a time
+   
+- Accelerated Gradient Methods
+    - allow previous iterations to build up momentum and influence the current iterations
+
+## Choice of Nonlinearities
+There are a number of activation functions $g^{(k)}$
+
+```{r echo=FALSE, out.width='70%', eval = TRUE}
+knitr::include_graphics("fig18_6.png")
+```
+
+
+## Convolutional NN
+
+It is a special layer for handling images. CNNs consist of two special types of layers - "convolve" and "pool".
+
+The "convolve" layer applies a bunch of filters to the images.
+
+```{r echo=FALSE, out.width='70%', eval = TRUE}
+knitr::include_graphics("convolve.png")
+```
+
+The "pool" layer is used to reduce the (filtered) image pixel sizes.
+```{r echo=FALSE, out.width='70%', eval = TRUE}
+knitr::include_graphics("pool.png")
+```
+
+
+
+## Dropout
+
+Dropout is a technique used to avoid overfitting on neural networks.
+
+- This is a form of regularization that is performed when learning a network
+
+- The idea is to randomly set a node to zero with probability $\phi$
+
+```{r echo=FALSE, out.width='70%', eval = TRUE}
+knitr::include_graphics("dropout.png")
+```
+
+
+# MINST
+
+We can learn the basics of Keras by walking through a simple example: recognizing handwritten digits from the MNIST dataset. MNIST consists of 60000 28 x 28 grayscale images of handwritten digits like these:
+
+```{r, eval = TRUE}
+library(reticulate)
+library(tidyverse)
+library(keras)
+use_condaenv("r-tensorflow", required = TRUE)
+mnist <- dataset_mnist()
+```
+
+```{r, eval = TRUE}
+# a helper function to visiual the images
+plot_mnist <- function(data, idx){
+  image(t(apply(data$x[idx, ,], 2, rev)), col=gray((0:255)/255), main = data$y[idx], axes = FALSE)
+}
+```
+
+```{r, fig.width = 2, fig.height = 2, eval = TRUE}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in 1:25) plot_mnist(mnist$train, i)
+```
+
+```{r}
+# The data, shuffled and split between train and test sets
+x_train <- mnist$train$x
+y_train <- mnist$train$y
+x_test <- mnist$test$x
+y_test <- mnist$test$y
+y_train <- to_categorical(y_train, 10)
+y_test <- to_categorical(y_test, 10)
+```
+
+
+```{r}
+mnist_model <- keras_model_sequential() %>% 
+  layer_flatten(input_shape = c(28, 28)) %>%
+  layer_lambda(function(x) x / 256) %>% 
+  layer_dense(units = 256, activation = 'relu') %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 10, activation = 'softmax')
+summary(mnist_model)
+```
+
+
+```{r}
+mnist_model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+
+See https://en.wikipedia.org/wiki/Stochastic_gradient_descent for some descriptions of the optimizers.
+
+```{r}
+history <- mnist_model %>% fit(
+  x_train, 
+  y_train,
+  epochs = 5, # for testing
+  batch_size = 128,
+  validation_split = 0.2
+)
+```
+
+```{r}
+pred <- mnist_model %>% predict_classes(x_test)
+wrong_idx <- which(pred != mnist$test$y)
+```
+
+```{r, fig.width = 2, fig.height = 2}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in seq_along(wrong_idx)) plot_mnist(mnist$test, wrong_idx[i])
+```
+
+
+Let's swap the first layout to some convolutional layers
+
+
+```{r}
+mnist_cnn <- keras_model_sequential() %>%
+  layer_reshape(target_shape = c(28, 28, 1), input_shape = c(28, 28)) %>% 
+  layer_lambda(function(x) x / 256) %>% 
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = 'relu') %>% 
+  layer_conv_2d(filters = 16, kernel_size = c(3,3), activation = 'relu') %>% 
+  layer_max_pooling_2d(pool_size = c(2, 2)) %>% 
+  layer_dropout(rate = 0.25) %>% 
+  layer_flatten() %>% 
+  layer_dense(units = 64, activation = 'relu') %>% 
+  layer_dropout(rate = 0.5) %>% 
+  layer_dense(units = 10, activation = 'softmax')
+summary(mnist_cnn)
+```
+
+```{r}
+# Compile model
+mnist_cnn %>% compile(
+  loss = loss_categorical_crossentropy,
+  optimizer = optimizer_adadelta(),
+  metrics = c('accuracy')
+)
+```
+
+```{r}
+# Train model
+mnist_cnn %>% fit(
+  x_train, y_train,
+  batch_size = 128,
+  epochs = 2,  # for testing
+  validation_split = 0.2
+)
+```
+
+
+```{r}
+pred <- mnist_cnn %>% predict_classes(x_test/ 1.0)
+wrong_idx <- which(pred != mnist$test$y)
+```
+
+
+```{r, fig.width = 2, fig.height = 2}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in seq_along(wrong_idx)) plot_mnist(mnist$test, wrong_idx[i])
+```
+
+
+See https://keras.rstudio.com/articles/getting_started.html for more examples
+o visiual the images
+plot_mnist <- function(data, idx){
+  image(t(apply(data$x[idx, ,], 2, rev)), col=gray((0:255)/255), main = data$y[idx])
+}
+```
+
+```{r, fig.width = 2, fig.height = 2}
+par(mfrow = c(5, 5), mar = c(0, 0, 0, 0))
+for (i in 1:25) plot_mnist(mnist$train, i)
+```
+
+
+
+```{r, eval = FALSE}
+x_train <- mnist$train$x
+y_train <- mnist$train$y
+x_test <- mnist$test$x
+y_test <- mnist$test$y
+# reshape
+x_train <- array_reshape(x_train, c(nrow(x_train), 784))
+x_test <- array_reshape(x_test, c(nrow(x_test), 784))
+# rescale
+x_train <- x_train / 255
+x_test <- x_test / 255
+```
+
+```{r, eval = FALSE}
+y_train <- to_categorical(y_train, 10)
+y_test <- to_categorical(y_test, 10)
+```
+
+```{r, eval = FALSE}
+model <- keras_model_sequential() 
+model %>% 
+  layer_dense(units = 256, activation = 'relu', input_shape = c(784)) %>% 
+  layer_dropout(rate = 0.4) %>% 
+  layer_dense(units = 128, activation = 'relu') %>%
+  layer_dropout(rate = 0.3) %>%
+  layer_dense(units = 10, activation = 'softmax')
+summary(model)
+```
+
+
+```{r, eval = FALSE}
+model %>% compile(
+  loss = 'categorical_crossentropy',
+  optimizer = optimizer_adam(),
+  metrics = c('accuracy')
+)
+```
+
+See https://en.wikipedia.org/wiki/Stochastic_gradient_descent for some descriptions of the optimizers.
+
+```{r, eval = FALSE}
+history <- model %>% fit(
+  x_train, y_train, 
+  epochs = 30, batch_size = 128, 
+  validation_split = 0.2
+)
+```
+
+```{r, eval = FALSE}
+pred <- model %>% predict_classes(x_test)
+pred
+```
+
+```{r, eval = FALSE}
+wrong_idx <- which(pred != mnist$test$y)
+```
+
+```{r, eval = FALSE, fig.width = 2, fig.height = 2}
+plot_mnist(mnist$test, sample(wrong_idx, 1))
+```
+
+
+See https://keras.rstudio.com/articles/getting_started.html for more examples

@@ -1,0 +1,238 @@
+---
+title: "Auto Differentiation and TesnsorFlow"
+author: "Hangyu Yue"
+date: "3/3/2020"
+output: html_document
+---
+```{r setup, include=FALSE}
+install.packages("cgraph")
+install.packages("madness")
+install.packages("reticulate")
+knitr::opts_chunk$set(echo = TRUE)
+Sys.which("python")
+use_python("~/usr/bin/python")
+```
+
+# Why do you care about gradient? 
+
+Gradient descent algorithms. Imagine that you need to minimize a function, e.g. $f(x) = x^2$
+
+```{r}
+x <- seq(-1, 1, len = 100)
+plot(x, x^2, type = "l")
+lines(x, (x-0.5) + 0.5^2, type = "l", lty = 2)
+```
+
+Suppose the current estimate of the minimizer is 0.5, a gradient descent algorithm assert that the minimum is in the opposite direction of the slope. Our next estimate would be 
+$$
+0.5 - slope * learning rate
+$$
+
+# What is Automatic Differentiation?
+
+Given a function `f(x)`, which is the derivative of `f(x)` at a given value of `x`?
+
+There are generally, three ways to get the answer
+
+- symbolic differentiation (think of wolfram alpha)
+- numeric differentiation
+
+```{r}
+library(numDeriv)
+f <- function(x) {
+    x^3
+}
+grad(f, x = 2)
+```
+
+Behind the scene, it uses finite differencing.
+Recall the differentiation from first principles
+
+$$
+f'(x) = \lim_{h -> 0} \frac{f(x+h) - f(x)}{h} \approx  \frac{f(x+\delta) - f(x)}{\delta} 
+$$
+for same small $\delta$.
+
+
+```{r}
+delta <- 1e-10
+(f(2 + delta) - f(2)) / delta
+```
+
+It may cause problems if delta is too large or too small.
+
+- automatic differentiation
+
+It is neither symbolic nor numeric differentiaion. It exploits the fact that most functions, no matter how complicated, executes a sequence of elementary arithmetic operations (addition, subtraction, multiplication, division, etc.) and elementary functions (exp, log, sin, cos, etc.)
+
+The exact principles behind AD are beyond the scope of our class (google it if you are interested).
+
+There are a few packages that do AD in R, 
+- madness: automatic differentiation of multivariate operations (forward mode)
+- cgraph: create, evaluate, and differentiate computational graphs in R (reverse mode)
+- tensorflow: interface to python package tensorflow (reverse mode)
+- autodiffr: interface to julia packages ForwardDiff.jl and ReverseDiff.jl
+
+
+## Forward mode vs reverse mode
+
+
+Consider the following equation
+
+- `y = z^2`
+- `z = x1^2 + x1 * x2`
+
+Find $dy/dx1$ and $dy/dx2$ at `x1=1`, `x2=2`.
+
+
+## madness
+
+Just to give you a taste:
+
+```{r}
+library(madness)
+x <- c(1, 2)
+madx <- madness(x)
+```
+
+```{r}
+f <- function(x) {
+  z <- x[1]^2 + x[1] * x[2]
+  z^2
+}
+```
+
+```{r}
+f(x)
+```
+
+
+```{r}
+(v <- f(madx))
+```
+
+The functional value is 9, while $dy/dx1 = 24$ and $dy/dx2 = 6$.
+
+
+```{r}
+# value
+val(v)
+# derivative
+dvdx(v)
+```
+
+
+## cgraph
+
+`cgraph` uses a computaional graph to evaluate derivations of a function.
+
+```{r}
+library(cgraph)
+graph <- cg_graph()
+x <- cg_input("x")
+z <-x[1]^2 +x[1] * x[2]
+y <- z^2
+```
+
+```{r}
+# forward propagation
+x$value <- c(1, 2)
+cg_graph_forward(graph, y)
+y$value
+```
+
+```{r}
+# backward propagation
+cg_graph_backward(graph, y)
+x$grad
+```
+
+
+## Tensorflow
+
+```{r}
+library(reticulate)
+library(tensorflow)
+# create an conda env for tensorflow
+if (!("r-tensorflow" %in% conda_list()$name)) {
+  conda_create("r-tensorflow")
+}
+use_condaenv("r-tensorflow", required = TRUE)
+```
+
+```{r, eval = FALSE}
+# if tensorflow was not installed
+install_tensorflow(envname = "r-tensorflow")
+```
+
+
+In Python
+```{python}
+import tensorflow as tf
+x = tf.Variable([1.0, 2.0])
+with tf.GradientTape() as t:
+  t.watch(x)
+  z = x[0]**2 + x[0] * x[1]
+  y = z**2
+dy_dx = t.gradient(y, x)
+dy_dx.numpy()
+```
+
+Or with R
+```{r}
+x <- tf$Variable(c(1, 2))
+with(tf$GradientTape() %as% t, {
+  t$watch(x)
+  z <- x[1]^2 + x[1] * x[2]
+  y <- z ^ 2
+})
+(dy_dx <- t$gradient(y, x))
+```
+
+
+# What is Tensorflow?
+
+A general purpose numerical computing library.
+
+- Originally developed by researchers and enginners working on the Google Brain Team for the purposes of conducting machine learning and deep nerual networks research.
+- Open source
+- Hardware independnt
+ - CPU, GPU or TPU (Tensor processing unit)
+- Support automatic differentiation
+- Distributed execution
+
+
+## What are tensors?
+
+| Dimension   | R object                       |
+| -----       | ---                            |
+| 0D          | 42                             |
+| 1D          | c(42, 42, 42)                  |
+| 2D          | matrix(42, nc = 2, nr = 2)     |
+| 3D          | array(42, dim = c(2, 3, 2))    |
+| 4D          | array(42, dim = c(2, 3, 2, 3)) |
+
+
+Examples
+
+| Data        | Tensor                                                 |
+| -----       | ---                                                    |
+| Vector data | 2D tensors of shape (samples, features)                |
+| Image data  | 4D tensors of shope (samples, height, width, channels) |
+
+
+Note that `samples` is always the first dimension.
+
+
+## So What is flowing?
+
+- user define a datagraph in R
+- graph is complied and optimized
+- graph is executed on devices
+- nodes represent computations
+- data (tensors) flow between nodes
+- automatic differentiation is used to update parameters in the graph
+
+```{r, echo = FALSE}
+knitr::include_graphics("https://www.tensorflow.org/images/tensors_flowing.gif")
+```
